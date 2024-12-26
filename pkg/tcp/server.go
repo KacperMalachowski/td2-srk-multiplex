@@ -28,14 +28,14 @@ func NewServer(addr string) (*Server, error) {
 	}, nil
 }
 
-func NewServerFromPortRange(ip string, minPort, maxPort int) (*Server, error) {
+func NewServerFromPortRange(ip string, minPort, maxPort int) (*Server, int, error) {
 	for port := minPort; port <= maxPort; port++ {
 		server, err := NewServer(fmt.Sprintf("%s:%d", ip, port))
 		if err == nil {
-			return server, nil
+			return server, port, nil
 		}
 	}
-	return nil, fmt.Errorf("no available port in range")
+	return nil, -1, fmt.Errorf("no available port in range")
 }
 
 func (s *Server) Start() {
@@ -79,8 +79,8 @@ func (s *Server) Send(msg []byte) error {
 	return nil
 }
 
-func (s *Server) Receive() []byte {
-	return <-s.inChan
+func (s *Server) Receive() <-chan []byte {
+	return s.inChan
 }
 
 func (s *Server) handleConn(conn net.Conn) {

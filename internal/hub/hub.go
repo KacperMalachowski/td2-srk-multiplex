@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -19,6 +20,11 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+type Message struct {
+	conn *websocket.Conn
+	msg  []byte
+}
+
 type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
@@ -30,15 +36,13 @@ func (c *Client) readPump() {
 		c.hub.Unregister <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			break
 		}
-		c.hub.Broadcast <- message
+		log.Printf("[CLIENT %s] Received message: %s\n", c.conn.RemoteAddr(), message)
+		c.hub.Broadcast <- Message{c.conn, message}
 	}
 }
 
@@ -51,7 +55,7 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			log.Printf("[CLIENT %s] Sending message: %s\n", c.conn.RemoteAddr(), message)
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -72,7 +76,6 @@ func (c *Client) writePump() {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -83,10 +86,13 @@ func (c *Client) writePump() {
 func Serve(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("error upgrading connection: %v", err)
 		return
 	}
 	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, 256)}
 	client.hub.Register <- client
+
+	log.Printf("Serving client: %s\n", conn.RemoteAddr())
 
 	go client.writePump()
 	go client.readPump()
@@ -95,7 +101,7 @@ func Serve(hub *Hub, w http.ResponseWriter, r *http.Request) {
 type Hub struct {
 	clients map[*Client]bool
 
-	Broadcast chan []byte
+	Broadcast chan Message
 
 	Register chan *Client
 
@@ -104,7 +110,7 @@ type Hub struct {
 
 func New() *Hub {
 	return &Hub{
-		Broadcast:  make(chan []byte),
+		Broadcast:  make(chan Message),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
@@ -115,19 +121,23 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
+			log.Printf("Registering client: %s\n", client.conn.RemoteAddr())
 			h.clients[client] = true
 		case client := <-h.Unregister:
 			if _, ok := h.clients[client]; ok {
+				log.Printf("Unregistering client: %s\n", client.conn.RemoteAddr())
 				delete(h.clients, client)
 				close(client.Send)
+
+				if len(h.clients) == 0 {
+					return
+				}
 			}
 		case message := <-h.Broadcast:
+			log.Printf("Broadcasting message: %s\n", message.msg)
 			for client := range h.clients {
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(h.clients, client)
+				if client.conn != message.conn {
+					client.Send <- message.msg
 				}
 			}
 		}

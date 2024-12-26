@@ -37,6 +37,23 @@ var _ = Describe("Server", func() {
 		})
 	})
 
+	Describe("NewServerFromPortRange", func() {
+		When("creating a new server from a port range", func() {
+			It("should return a server", func() {
+				server, port, err := NewServerFromPortRange("0.0.0.0", 9900, 9999)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(server).ToNot(BeNil())
+				Expect(port > -9900 && port <= 9999).To(BeTrue())
+			})
+
+			It("should return an error if no port is available", func() {
+				server, _, err := NewServerFromPortRange("0.0.0.0", -1, -1)
+				Expect(err).To(HaveOccurred())
+				Expect(server).To(BeNil())
+			})
+		})
+	})
+
 	Describe("Start", func() {
 		When("starting the server", func() {
 			It("should be able to accept connections", func(ctx SpecContext) {
@@ -97,7 +114,7 @@ var _ = Describe("Server", func() {
 				_, err = conn.Write([]byte("hello"))
 				Expect(err).ToNot(HaveOccurred())
 
-				msg := server.Receive()
+				msg := <-server.Receive()
 				Expect(string(msg)).To(Equal("hello"))
 			}, SpecTimeout(10*time.Second))
 		})

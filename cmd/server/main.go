@@ -18,9 +18,10 @@ func main() {
 		id := mux.Vars(r)["id"]
 		if _, ok := sessions[id]; !ok {
 			sessions[id] = hub.New()
+			go sessions[id].Run()
 		}
 
-		log.Printf("New session: %s\n", id)
+		log.Printf("Session %s: %v\n", id, sessions[id])
 		hub.Serve(sessions[id], w, r)
 	})
 

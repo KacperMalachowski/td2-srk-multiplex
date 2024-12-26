@@ -6,20 +6,24 @@ import (
 )
 
 type TestTCPServer struct {
+	addr             string
+	listener         net.Listener
 	ReceivedDataChan chan string
 }
 
-func New() *TestTCPServer {
+func New(addr string) *TestTCPServer {
 	return &TestTCPServer{
+		addr:             addr,
 		ReceivedDataChan: make(chan string),
 	}
 }
 
 func (s *TestTCPServer) Start() (string, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return "", fmt.Errorf("failed to start test server: %s", err)
 	}
+	s.listener = l
 
 	go func() {
 		defer l.Close()
@@ -48,5 +52,6 @@ func (s *TestTCPServer) Start() (string, error) {
 }
 
 func (s *TestTCPServer) Stop() {
+	s.listener.Close()
 	close(s.ReceivedDataChan)
 }
